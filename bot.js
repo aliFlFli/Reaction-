@@ -13,31 +13,49 @@ function loadData() {
             return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
         }
     } catch (e) {
-        console.error("خطا در بارگذاری:", e);
+        console.error("خطا در بارگذاری داده‌ها:", e);
     }
-    return { bots: [], channels: [], reactions: ["🔥", "⚡", "🕊️", "👌", "🎉"], logs: [] };
+    return { 
+        channels: [], 
+        reactions: ["🔥", "⚡", "🕊️", "👌", "🎉", "❤️"], 
+        logs: [] 
+    };
 }
 
 function saveData(data) {
     fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
 }
 
-function addChannel(channelId) {
+function addChannel(input) {
     const data = loadData();
-    if (data.channels.some(c => c.channel_id === channelId)) {
-        return { success: false, message: "❌ این کانال قبلاً اضافه شده!" };
+    const channelId = input.startsWith("-100") ? input : input; // فعلاً مستقیم ذخیره می‌کنیم
+
+    if (data.channels.some(c => c.channel_id === channelId || c.username === input)) {
+        return { success: false, message: "❌ این کانال قبلاً اضافه شده است!" };
     }
-    data.channels.push({ channel_id: channelId, is_active: true });
+
+    data.channels.push({ 
+        channel_id: channelId, 
+        username: input.startsWith("@") ? input : null,
+        is_active: true 
+    });
+    
     saveData(data);
-    return { success: true, message: `✅ کانال ${channelId} اضافه شد!` };
+    return { success: true, message: `✅ کانال ${input} با موفقیت اضافه شد!` };
 }
 
-function removeChannel(channelId) {
+function removeChannel(input) {
     const data = loadData();
-    const existed = data.channels.some(c => c.channel_id === channelId);
-    data.channels = data.channels.filter(c => c.channel_id !== channelId);
+    const initialLength = data.channels.length;
+
+    data.channels = data.channels.filter(c => 
+        c.channel_id !== input && c.username !== input
+    );
+
     saveData(data);
-    return existed ? `🗑️ کانال ${channelId} حذف شد!` : "❌ کانالی با این شناسه یافت نشد";
+    return initialLength > data.channels.length 
+        ? `🗑️ کانال ${input} حذف شد!` 
+        : "❌ کانالی با این شناسه یافت نشد!";
 }
 
 function getChannels() {
@@ -47,7 +65,7 @@ function getChannels() {
 function addReaction(emoji) {
     const data = loadData();
     if (data.reactions.includes(emoji)) {
-        return { success: false, message: "❌ این ایموجی قبلاً اضافه شده!" };
+        return { success: false, message: "❌ این ایموجی قبلاً اضافه شده است!" };
     }
     data.reactions.push(emoji);
     saveData(data);
@@ -59,7 +77,7 @@ function removeReaction(emoji) {
     const existed = data.reactions.includes(emoji);
     data.reactions = data.reactions.filter(e => e !== emoji);
     saveData(data);
-    return existed ? `🗑️ ایموجی ${emoji} حذف شد!` : "❌ ایموجی یافت نشد";
+    return existed ? `🗑️ ایموجی ${emoji} حذف شد!` : "❌ ایموجی یافت نشد!";
 }
 
 function getReactions() {
@@ -68,8 +86,14 @@ function getReactions() {
 
 function addLog(channelId, postId, emoji, status) {
     const data = loadData();
-    data.logs.unshift({ channelId, postId, emoji, status, time: new Date().toISOString() });
-    if (data.logs.length > 100) data.logs = data.logs.slice(0, 100);
+    data.logs.unshift({
+        channelId,
+        postId,
+        emoji,
+        status,
+        time: new Date().toISOString()
+    });
+    if (data.logs.length > 200) data.logs = data.logs.slice(0, 200);
     saveData(data);
 }
 
@@ -79,194 +103,171 @@ function getLogs() {
 
 function getStats() {
     const data = loadData();
-    const successLogs = data.logs.filter(l => l.status === "success").length;
-    const failLogs = data.logs.filter(l => l.status === "fail").length;
+    const success = data.logs.filter(l => l.status === "success").length;
+    const fail = data.logs.filter(l => l.status === "fail").length;
+
     return {
         channels: data.channels.length,
         reactions: data.reactions.length,
         total: data.logs.length,
-        success: successLogs,
-        fail: failLogs
+        success,
+        fail
     };
 }
 
-// ========== تابع ری‌اکشن ==========
+// ========== تابع اصلی ری‌اکشن ==========
 async function reactToPost(ctx) {
     const data = loadData();
     const chatId = ctx.chat.id.toString();
-    
-    // بررسی اینکه کانال در لیست هست یا نه
-    if (!data.channels.some(c => c.channel_id === chatId && c.is_active)) {
-        return;
-    }
-    
+
+    // پیدا کردن کانال (هم با ID هم با username)
+    const channel = data.channels.find(c => 
+        c.channel_id === chatId || 
+        (c.username && ctx.chat.username && `@${ctx.chat.username}` === c.username)
+    );
+
+    if (!channel || !channel.is_active) return;
     if (data.reactions.length === 0) return;
-    
-    // انتخاب تصادفی
+
     const randomEmoji = data.reactions[Math.floor(Math.random() * data.reactions.length)];
-    
+
     try {
-        await ctx.api.setMessageReaction(chatId, ctx.msg.message_id, {
-            reaction: [{ type: "emoji", emoji: randomEmoji }]
-        });
+        await ctx.api.setMessageReaction(chatId, ctx.msg.message_id, [
+            { type: "emoji", emoji: randomEmoji }
+        ]);
+
         addLog(chatId, ctx.msg.message_id.toString(), randomEmoji, "success");
-        console.log(`✅ ${randomEmoji} به پست ${ctx.msg.message_id} در ${chatId} زده شد`);
+        console.log(`✅ ${randomEmoji} زده شد | پست: ${ctx.msg.message_id} | کانال: ${chatId}`);
     } catch (e) {
-        addLog(chatId, ctx.msg.message_id.toString(), "❌", "fail");
+        addLog(chatId, ctx.msg.message_id.toString(), randomEmoji, "fail");
         console.error(`❌ خطا در ری‌اکشن: ${e.message}`);
     }
 }
 
-// ========== گوش دادن به پست‌های کانال ==========
+// ========== Listenerها ==========
 bot.on("channel_post", reactToPost);
-bot.on("message", async (ctx) => {
-    if (ctx.chat?.type === "channel") {
-        await reactToPost(ctx);
-    }
-});
 
 // ========== دستورات ==========
-
-// استارت
 bot.command("start", async (ctx) => {
     const reactions = getReactions();
     await ctx.reply(
-        `👋 **ربات ری‌اکشن‌گذار چندگانه**\n\n` +
-        `📡 **کانال‌ها:**\n` +
-        `/addchannel @username - اضافه کردن کانال\n` +
-        `/removechannel @username - حذف کانال\n` +
-        `/channels - لیست کانال‌ها\n\n` +
-        `😀 **ری‌اکشن‌ها:**\n` +
-        `/addreaction 😀 - اضافه کردن ری‌اکشن\n` +
-        `/removereaction 😀 - حذف ری‌اکشن\n` +
-        `/reactions - لیست ری‌اکشن‌ها\n\n` +
-        `📊 /status - وضعیت سیستم\n` +
-        `📋 /logs - آخرین لاگ‌ها\n\n` +
+        `👋 **ربات ری‌اکشن‌گذار خودکار**\n\n` +
+        `📡 **مدیریت کانال‌ها:**\n` +
+        `/addchannel @username — اضافه کردن\n` +
+        `/removechannel @username — حذف\n` +
+        `/channels — لیست کانال‌ها\n\n` +
+        `😀 **مدیریت ری‌اکشن‌ها:**\n` +
+        `/addreaction 😀 — اضافه کردن\n` +
+        `/removereaction 😀 — حذف\n` +
+        `/reactions — لیست ری‌اکشن‌ها\n\n` +
+        `📊 /status — وضعیت\n` +
+        `📋 /logs — لاگ‌ها\n\n` +
         `🔹 ری‌اکشن‌های فعلی: ${reactions.join(" ")}`,
         { parse_mode: "Markdown" }
     );
 });
 
-// راهنما
-bot.command("help", async (ctx) => {
-    await ctx.reply(
-        `📚 **راهنمای کامل:**\n\n` +
-        `📡 **کانال‌ها:**\n` +
-        `/addchannel @username - اضافه کردن کانال\n` +
-        `/removechannel @username - حذف کانال\n` +
-        `/channels - لیست کانال‌ها\n\n` +
-        `😀 **ری‌اکشن‌ها:**\n` +
-        `/addreaction 😀 - اضافه کردن ری‌اکشن\n` +
-        `/removereaction 😀 - حذف ری‌اکشن\n` +
-        `/reactions - لیست ری‌اکشن‌ها\n\n` +
-        `📊 /status - وضعیت سیستم\n` +
-        `📋 /logs - آخرین لاگ‌ها`,
-        { parse_mode: "Markdown" }
-    );
-});
-
-// افزودن کانال
 bot.command("addchannel", async (ctx) => {
-    const args = ctx.message.text.split(" ");
+    const args = ctx.message.text.split(/\s+/);
     if (args.length < 2) {
-        await ctx.reply("📝 استفاده: `/addchannel @channel_username`\n\n⚠️ ربات باید ادمین کانال باشد!", { parse_mode: "Markdown" });
-        return;
+        return ctx.reply("📝 استفاده صحیح:\n`/addchannel @username`\nیا\n`/addchannel -1001234567890`", 
+            { parse_mode: "Markdown" });
     }
     const result = addChannel(args[1]);
     await ctx.reply(result.message);
 });
 
-// حذف کانال
 bot.command("removechannel", async (ctx) => {
-    const args = ctx.message.text.split(" ");
+    const args = ctx.message.text.split(/\s+/);
     if (args.length < 2) {
-        await ctx.reply("📝 استفاده: `/removechannel @channel_username`", { parse_mode: "Markdown" });
-        return;
+        return ctx.reply("📝 استفاده: `/removechannel @username`", { parse_mode: "Markdown" });
     }
     const result = removeChannel(args[1]);
     await ctx.reply(result);
 });
 
-// لیست کانال‌ها
 bot.command("channels", async (ctx) => {
     const channels = getChannels();
     if (channels.length === 0) {
-        await ctx.reply("📭 هنوز هیچ کانالی اضافه نشده است.");
-        return;
+        return ctx.reply("📭 هنوز هیچ کانالی اضافه نشده است.");
     }
-    let msg = "📡 **لیست کانال‌ها:**\n\n";
-    for (let i = 0; i < channels.length; i++) {
-        const c = channels[i];
+
+    let text = "📡 **لیست کانال‌ها:**\n\n";
+    channels.forEach((c, i) => {
         const status = c.is_active ? "✅ فعال" : "❌ غیرفعال";
-        msg += `${i + 1}. ${c.channel_id} — ${status}\n`;
-    }
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+        text += `${i + 1}. ${c.username || c.channel_id} — ${status}\n`;
+    });
+
+    await ctx.reply(text, { parse_mode: "Markdown" });
 });
 
-// افزودن ری‌اکشن
 bot.command("addreaction", async (ctx) => {
-    const args = ctx.message.text.split(" ");
+    const args = ctx.message.text.split(/\s+/);
     if (args.length < 2) {
-        await ctx.reply("📝 استفاده: `/addreaction 😀`", { parse_mode: "Markdown" });
-        return;
+        return ctx.reply("📝 استفاده: `/addreaction 😀`", { parse_mode: "Markdown" });
     }
     const result = addReaction(args[1]);
     await ctx.reply(result.message);
 });
 
-// حذف ری‌اکشن
 bot.command("removereaction", async (ctx) => {
-    const args = ctx.message.text.split(" ");
+    const args = ctx.message.text.split(/\s+/);
     if (args.length < 2) {
-        await ctx.reply("📝 استفاده: `/removereaction 😀`", { parse_mode: "Markdown" });
-        return;
+        return ctx.reply("📝 استفاده: `/removereaction 😀`", { parse_mode: "Markdown" });
     }
     const result = removeReaction(args[1]);
     await ctx.reply(result);
 });
 
-// لیست ری‌اکشن‌ها
 bot.command("reactions", async (ctx) => {
     const reactions = getReactions();
     if (reactions.length === 0) {
-        await ctx.reply("📭 هیچ ری‌اکشنی تعریف نشده است.");
-        return;
+        return ctx.reply("📭 هیچ ری‌اکشنی تعریف نشده است.");
     }
-    await ctx.reply(`📋 **ری‌اکشن‌ها (${reactions.length}):**\n\n${reactions.join("  ")}`, { parse_mode: "Markdown" });
+    await ctx.reply(`📋 **ری‌اکشن‌های فعلی (\( {reactions.length}):**\n\n \){reactions.join("  ")}`, 
+        { parse_mode: "Markdown" });
 });
 
-// لاگ‌ها
 bot.command("logs", async (ctx) => {
     const logs = getLogs();
     if (logs.length === 0) {
-        await ctx.reply("📭 هیچ لاگی وجود ندارد.");
-        return;
+        return ctx.reply("📭 هنوز هیچ لاگی ثبت نشده است.");
     }
-    let msg = "📋 **آخرین لاگ‌ها:**\n\n";
-    for (const log of logs.slice(0, 10)) {
+
+    let text = "📋 **آخرین لاگ‌ها:**\n\n";
+    logs.slice(0, 15).forEach(log => {
         const status = log.status === "success" ? "✅" : "❌";
-        msg += `${status} ${log.channelId} — #${log.postId} — ${log.emoji}\n`;
-    }
-    await ctx.reply(msg, { parse_mode: "Markdown" });
+        text += `${status} \( {log.channelId} — # \){log.postId} — ${log.emoji}\n`;
+    });
+
+    await ctx.reply(text, { parse_mode: "Markdown" });
 });
 
-// وضعیت
 bot.command("status", async (ctx) => {
     const stats = getStats();
     await ctx.reply(
-        `📊 **وضعیت سیستم**\n\n` +
-        `📡 کانال‌های فعال: ${stats.channels}\n` +
-        `😀 ری‌اکشن‌ها: ${stats.reactions}\n` +
+        `📊 **وضعیت ربات**\n\n` +
+        `📡 کانال‌های اضافه شده: ${stats.channels}\n` +
+        `😀 تعداد ری‌اکشن‌ها: ${stats.reactions}\n` +
         `📈 کل عملیات: ${stats.total}\n` +
         `✅ موفق: ${stats.success}\n` +
         `❌ ناموفق: ${stats.fail}\n\n` +
-        `🟢 سیستم فعال است`,
+        `🟢 ربات فعال و در حال اجراست`,
+        { parse_mode: "Markdown" }
+    );
+});
+
+bot.command("help", async (ctx) => {
+    await ctx.reply(
+        `📚 **راهنمای ربات ری‌اکشن‌گذار**\n\n` +
+        `ربات باید ادمین کانال باشد.\n\n` +
+        `برای اطلاعات بیشتر دستور /start را بزنید.`,
         { parse_mode: "Markdown" }
     );
 });
 
 // ========== اجرا ==========
-console.log("🚀 در حال اجرای ربات...");
+console.log("🚀 ربات در حال شروع...");
 bot.start();
 console.log("✅ ربات با موفقیت اجرا شد!");
-console.log("📺 منتظر پیام‌ها هستم...");
+console.log("📺 در حال نظارت بر کانال‌ها...");
