@@ -8,22 +8,21 @@ const mainBot = new Bot(MAIN_TOKEN);
 
 const DATA_FILE = path.join(__dirname, "data.json");
 
-// ========== داده‌ها ==========
 let data = {
     channels: [],
     reactions: new Set(["🔥", "⚡", "🕊️", "👌", "🎉", "❤️"]),
-    helperBots: []          // {id, token, username}
+    helperBots: []
 };
 
 const channelMap = new Map();
 
-// پاکسازی فرآیندهای قبلی
+// پاکسازی
 try {
     execSync('pkill -f "node bot.js" || true', { stdio: 'ignore' });
     console.log("🧹 فرآیندهای قبلی پاک شدند");
 } catch (e) {}
 
-// ========== لود و سیو ==========
+// لود و سیو
 async function loadData() {
     try {
         const raw = await fs.readFile(DATA_FILE, "utf8");
@@ -34,7 +33,7 @@ async function loadData() {
 
         data.channels.forEach(c => channelMap.set(c.channel_id, c));
     } catch (e) {
-        console.log("📁 فایل داده جدید ایجاد شد.");
+        console.log("📁 داده‌های پیش‌فرض لود شد.");
     }
 }
 
@@ -42,12 +41,12 @@ async function saveData() {
     const toSave = {
         channels: data.channels,
         reactions: Array.from(data.reactions),
-        helperBots: data.helperBots.map(b => ({id: b.id, token: b.token, username: b.username}))
+        helperBots: data.helperBots.map(b => ({ id: b.id, token: b.token, username: b.username }))
     };
     await fs.writeFile(DATA_FILE, JSON.stringify(toSave, null, 2));
 }
 
-// ========== هندلر ری‌اکشن ==========
+// هندلر ری‌اکشن
 const createReactionHandler = () => async (ctx) => {
     const chatId = ctx.chat.id.toString();
     if (!channelMap.has(chatId)) return;
@@ -60,7 +59,7 @@ const createReactionHandler = () => async (ctx) => {
     } catch (e) {}
 };
 
-// ========== راه‌اندازی ربات کمکی ==========
+// راه‌اندازی ربات کمکی
 async function startHelperBot(helper) {
     try {
         const bot = new Bot(helper.token);
@@ -70,7 +69,7 @@ async function startHelperBot(helper) {
         console.log(`✅ ${helper.username} فعال شد`);
         return true;
     } catch (e) {
-        console.error(`❌ خطا در ${helper.username}:`, e.message);
+        console.error(`❌ خطا در راه‌اندازی ${helper.username}:`, e.message);
         return false;
     }
 }
@@ -81,22 +80,21 @@ async function startAllHelpers() {
     }
 }
 
-// ========== دستورات ==========
+// دستورات
 mainBot.command("start", async (ctx) => {
     await ctx.reply(
         `👋 **ربات ری‌اکشن‌گذار چندگانه**\n\n` +
-        `📡 **کانال‌ها:**\n/addchannel @username\n/removechannel @username\n/channels\n\n` +
-        `😀 **ری‌اکشن‌ها:**\n/addreaction 😀\n/removereaction 😀\n/reactions\n\n` +
-        `🤖 **ربات‌های کمکی:**\n/addbot <token>\n/bots\n/removebot <id>\n\n` +
+        `📡 کانال‌ها:\n/addchannel @username\n/channels\n/removechannel @username\n\n` +
+        `😀 ری‌اکشن‌ها:\n/addreaction 😀\n/removereaction 😀\n/reactions\n\n` +
+        `🤖 ربات‌های کمکی:\n/addbot <token>\n/bots\n/removebot <id>\n\n` +
         `📊 /status`,
         { parse_mode: "Markdown" }
     );
 });
 
-// مدیریت کانال
 mainBot.command("addchannel", async (ctx) => {
     const arg = ctx.message.text.trim().split(/\s+/)[1];
-    if (!arg) return ctx.reply("📝 `/addchannel @username`");
+    if (!arg) return ctx.reply("📝 استفاده: `/addchannel @username`");
 
     let channelId = arg;
     if (arg.startsWith("@")) {
@@ -104,7 +102,7 @@ mainBot.command("addchannel", async (ctx) => {
             const chat = await mainBot.api.getChat(arg);
             channelId = chat.id.toString();
         } catch (e) {
-            return ctx.reply("❌ ربات ادمین کانال نیست یا کانال یافت نشد.");
+            return ctx.reply("❌ ربات ادمین کانال نیست.");
         }
     }
 
@@ -114,13 +112,11 @@ mainBot.command("addchannel", async (ctx) => {
     data.channels.push(ch);
     channelMap.set(channelId, ch);
     await saveData();
-
     await ctx.reply(`✅ کانال ${arg} اضافه شد!`);
 });
 
 mainBot.command("channels", async (ctx) => {
     if (data.channels.length === 0) return ctx.reply("📭 کانالی اضافه نشده.");
-
     const txt = data.channels.map((c,i) => `${i+1}. ${c.username || c.channel_id}`).join("\n");
     await ctx.reply(`📡 **کانال‌ها:**\n\n${txt}`);
 });
@@ -138,7 +134,6 @@ mainBot.command("removechannel", async (ctx) => {
     await ctx.reply(`🗑️ ${removed.username || removed.channel_id} حذف شد!`);
 });
 
-// مدیریت ری‌اکشن
 mainBot.command("addreaction", async (ctx) => {
     const emoji = ctx.message.text.trim().split(/\s+/)[1];
     if (!emoji) return ctx.reply("📝 `/addreaction 😀`");
@@ -146,4 +141,85 @@ mainBot.command("addreaction", async (ctx) => {
 
     data.reactions.add(emoji);
     await saveData();
-    await ctx.reply(`✅ ${
+    await ctx.reply(`✅ ${emoji} اضافه شد!`);
+});
+
+mainBot.command("removereaction", async (ctx) => {
+    const emoji = ctx.message.text.trim().split(/\s+/)[1];
+    if (!emoji) return ctx.reply("📝 `/removereaction 😀`");
+    if (data.reactions.delete(emoji)) {
+        await saveData();
+        await ctx.reply(`🗑️ ${emoji} حذف شد!`);
+    } else {
+        await ctx.reply("❌ یافت نشد!");
+    }
+});
+
+mainBot.command("reactions", async (ctx) => {
+    const list = Array.from(data.reactions).join(" ");
+    await ctx.reply(`📋 **ری‌اکشن‌ها:**\n\n${list || "هیچ"}`);
+});
+
+mainBot.command("addbot", async (ctx) => {
+    const token = ctx.message.text.trim().split(/\s+/)[1];
+    if (!token) return ctx.reply("📝 `/addbot <token>`");
+
+    let username = "نامشخص";
+    try {
+        const temp = new Bot(token);
+        const me = await temp.api.getMe();
+        username = `@${me.username}`;
+    } catch (e) {
+        return ctx.reply("❌ توکن اشتباه است!");
+    }
+
+    const id = Date.now().toString().slice(-6);
+    const helper = { id, token, username, botInstance: null };
+
+    data.helperBots.push(helper);
+    await saveData();
+    await ctx.reply(`✅ ${username} اضافه شد (ID: ${id})`);
+    await startHelperBot(helper);
+});
+
+mainBot.command("bots", async (ctx) => {
+    let str = `🤖 ربات‌های فعال: ${data.helperBots.length + 1}\n\n1. ربات اصلی\n`;
+    data.helperBots.forEach((b,i) => str += `${i+2}. ${b.username} | ${b.id}\n`);
+    await ctx.reply(str);
+});
+
+mainBot.command("removebot", async (ctx) => {
+    const id = ctx.message.text.trim().split(/\s+/)[1];
+    if (!id) return ctx.reply("📝 `/removebot <id>`");
+
+    const idx = data.helperBots.findIndex(b => b.id === id);
+    if (idx === -1) return ctx.reply("❌ یافت نشد!");
+
+    data.helperBots.splice(idx, 1);
+    await saveData();
+    await ctx.reply(`🗑️ ربات ${id} حذف شد!`);
+});
+
+mainBot.command("status", async (ctx) => {
+    await ctx.reply(
+        `📊 **وضعیت**\n\n` +
+        `📡 کانال: ${data.channels.length}\n` +
+        `😀 ری‌اکشن: ${data.reactions.size}\n` +
+        `🤖 ربات کمکی: ${data.helperBots.length}\n` +
+        `🟢 فعال`
+    );
+});
+
+// اجرا
+async function main() {
+    await loadData();
+    mainBot.on("channel_post", createReactionHandler());
+
+    console.log("🚀 پنل مرکزی شروع شد...");
+    await mainBot.start();
+    console.log("✅ ربات اصلی فعال شد.");
+
+    await startAllHelpers();
+}
+
+main().catch(e => console.error("خطای کلی:", e));
