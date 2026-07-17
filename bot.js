@@ -1,287 +1,275 @@
-// ========== نسخه کامل با ربات‌های کمکی فعال ==========
+// ========== نسخه بدون دیتابیس (فقط با فایل JSON) ==========
 
-const { Bot, session } = require("grammy");
-const sqlite3 = require("sqlite3").verbose();
-const { open } = require("sqlite");
-const path = require("path");
+const { Bot } = require("grammy");
+const fs = require("fs");
 require("dotenv").config();
 
-// ========== تنظیمات ==========
-const BOT_TOKEN = process.env.BOT_TOKEN || "توکن_ربات_اصلی_اینجا";
-const mainBot = new Bot(BOT_TOKEN);
+const BOT_TOKEN = process.env.BOT_TOKEN || "توکن_ربات_اینجا";
+const bot = new Bot(BOT_TOKEN);
 
-// ========== دیتابیس ==========
-let db;
+const DATA_FILE = "data.json";
 
-async function initDatabase() {
-    db = await open({
-        filename: path.join(__dirname, "reaction_bot.db"),
-        driver: sqlite3.Database
-    });
+// ========== مدیریت دیتا با فایل JSON ==========
 
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS bots (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            token TEXT UNIQUE NOT NULL,
-            username TEXT,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            is_active INTEGER DEFAULT 1
-        )
-    `);
-
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS channels (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            channel_id TEXT UNIQUE NOT NULL,
-            channel_name TEXT,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            is_active INTEGER DEFAULT 1
-        )
-    `);
-
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS reactions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            emoji TEXT UNIQUE NOT NULL,
-            added_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
-
-    await db.exec(`
-        CREATE TABLE IF NOT EXISTS logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            bot_id INTEGER,
-            channel_id TEXT,
-            post_id TEXT,
-            emoji TEXT,
-            status TEXT,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-    `);
-
-    // ری‌اکشن‌های پیش‌فرض
-    const defaultEmojis = ["🔥", "⚡", "🕊️", "👌", "🎉"];
-    for (const emoji of defaultEmojis) {
-        await db.run(
-            "INSERT OR IGNORE INTO reactions (emoji) VALUES (?)",
-            emoji
-        );
-    }
-
-    console.log("✅ دیتابیس راه‌اندازی شد");
-}
-
-// ========== توابع دیتابیس ==========
-
-async function getBots() {
-    return await db.all("SELECT * FROM bots WHERE is_active = 1");
-}
-
-async function getChannels() {
-    return await db.all("SELECT * FROM channels WHERE is_active = 1");
-}
-
-async function getReactions() {
-    return await db.all("SELECT * FROM reactions");
-}
-
-async function addLog(botId, channelId, postId, emoji, status) {
-    await db.run(
-        "INSERT INTO logs (bot_id, channel_id, post_id, emoji, status) VALUES (?, ?, ?, ?, ?)",
-        botId, channelId, postId, emoji, status
-    );
-}
-
-// ========== تابع ری‌اکشن برای هر ربات ==========
-
-function createReactionHandler(botId, botUsername) {
-    return async (ctx) => {
-        try {
-            const chatId = ctx.chat.id.toString();
-            const messageId = ctx.msg.message_id;
-
-            // بررسی مجاز بودن کانال برای این ربات
-            const channels = await getChannels();
-            const isAllowed = channels.some(ch => ch.channel_id === chatId);
-            
-            if (!isAllowed) return;
-
-            // دریافت ری‌اکشن‌ها
-            const reactions = await getReactions();
-            if (reactions.length === 0) return;
-
-            // انتخاب تصادفی
-            const randomEmoji = reactions[Math.floor(Math.random() * reactions.length)].emoji;
-
-            // زدن ری‌اکشن
-            await ctx.api.setMessageReaction(chatId, messageId, {
-                reaction: [{ type: "emoji", emoji: randomEmoji }]
-            });
-
-            // ذخیره لاگ
-            await addLog(botId, chatId, messageId.toString(), randomEmoji, "success");
-            console.log(`✅ [@${botUsername}] ${randomEmoji} به پست ${messageId} در ${chatId} زده شد`);
-
-        } catch (error) {
-            console.error(`❌ [@${botUsername}] خطا: ${error.message}`);
-            await addLog(botId, ctx.chat?.id?.toString() || "unknown", ctx.msg?.message_id?.toString() || "0", "❌", "fail");
-        }
-    };
-}
-
-// ========== اجرای ربات‌های کمکی ==========
-
-const runningBots = new Map(); // ذخیره ربات‌های در حال اجرا
-
-async function startBot(token, botId, username) {
+function loadData() {
     try {
-        const bot = new Bot(token);
-        
-        // گوش دادن به پست‌های کانال
-        bot.on("channel_post", createReactionHandler(botId, username));
-        bot.on("message", async (ctx) => {
-            if (ctx.chat?.type === "channel") {
-                const handler = createReactionHandler(botId, username);
-                await handler(ctx);
-            }
-        });
-
-        // شروع ربات
-        bot.start();
-        runningBots.set(botId, bot);
-        
-        console.log(`✅ ربات کمکی @${username} (ID: ${botId}) اجرا شد!`);
-        return true;
-    } catch (error) {
-        console.error(`❌ خطا در اجرای ربات ${username}: ${error.message}`);
-        return false;
+        if (fs.existsSync(DATA_FILE)) {
+            return JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+        }
+    } catch (e) {
+        console.error("خطا در بارگذاری:", e);
     }
+    return { bots: [], channels: [], reactions: ["🔥", "⚡", "🕊️", "👌", "🎉"], logs: [] };
 }
 
-async function startAllBots() {
-    const bots = await getBots();
-    console.log(`🤖 در حال اجرای ${bots.length} ربات کمکی...`);
+function saveData(data) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+}
+
+// ========== توابع ==========
+
+function addBot(token, username) {
+    const data = loadData();
+    if (data.bots.some(b => b.token === token)) {
+        return { success: false, message: "❌ توکن تکراری!" };
+    }
+    const id = data.bots.length > 0 ? Math.max(...data.bots.map(b => b.id)) + 1 : 1;
+    data.bots.push({ id, token, username, is_active: true });
+    saveData(data);
+    return { success: true, id };
+}
+
+function removeBot(id) {
+    const data = loadData();
+    data.bots = data.bots.filter(b => b.id !== id);
+    saveData(data);
+    return true;
+}
+
+function addChannel(channelId) {
+    const data = loadData();
+    if (data.channels.some(c => c.channel_id === channelId)) {
+        return { success: false, message: "❌ کانال تکراری!" };
+    }
+    data.channels.push({ channel_id: channelId, is_active: true });
+    saveData(data);
+    return { success: true };
+}
+
+function removeChannel(channelId) {
+    const data = loadData();
+    data.channels = data.channels.filter(c => c.channel_id !== channelId);
+    saveData(data);
+    return true;
+}
+
+function addReaction(emoji) {
+    const data = loadData();
+    if (data.reactions.includes(emoji)) {
+        return { success: false, message: "❌ ایموجی تکراری!" };
+    }
+    data.reactions.push(emoji);
+    saveData(data);
+    return { success: true };
+}
+
+function removeReaction(emoji) {
+    const data = loadData();
+    data.reactions = data.reactions.filter(e => e !== emoji);
+    saveData(data);
+    return true;
+}
+
+function addLog(channelId, postId, emoji, status) {
+    const data = loadData();
+    data.logs.unshift({ channelId, postId, emoji, status, time: new Date().toISOString() });
+    if (data.logs.length > 100) data.logs = data.logs.slice(0, 100);
+    saveData(data);
+}
+
+// ========== ری‌اکشن ==========
+
+async function reactToPost(ctx) {
+    const data = loadData();
+    const chatId = ctx.chat.id.toString();
     
-    for (const bot of bots) {
-        await startBot(bot.token, bot.id, bot.username);
+    // بررسی مجاز بودن کانال
+    if (!data.channels.some(c => c.channel_id === chatId && c.is_active)) return;
+    if (data.reactions.length === 0) return;
+    
+    const randomEmoji = data.reactions[Math.floor(Math.random() * data.reactions.length)];
+    
+    try {
+        await ctx.api.setMessageReaction(chatId, ctx.msg.message_id, {
+            reaction: [{ type: "emoji", emoji: randomEmoji }]
+        });
+        addLog(chatId, ctx.msg.message_id.toString(), randomEmoji, "success");
+        console.log(`✅ ${randomEmoji} به ${chatId} زده شد`);
+    } catch (e) {
+        addLog(chatId, ctx.msg.message_id.toString(), "❌", "fail");
+        console.error(`❌ خطا: ${e.message}`);
     }
 }
 
-// ========== ربات اصلی ==========
+// ========== گوش دادن ==========
 
-// دستورات مدیریت برای ربات اصلی (همون دستورات قبلی)
-mainBot.command("addbot", async (ctx) => {
+bot.on("channel_post", reactToPost);
+bot.on("message", async (ctx) => {
+    if (ctx.chat?.type === "channel") await reactToPost(ctx);
+});
+
+// ========== دستورات ==========
+
+bot.command("addbot", async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) {
-        await ctx.reply("⚠️ توکن ربات را وارد کنید: `/addbot 1234567890:ABCdef...`");
+        await ctx.reply("⚠️ توکن را وارد کنید: `/addbot TOKEN`");
         return;
     }
-
-    const token = args[1];
-    
     try {
-        const testBot = new Bot(token);
+        const testBot = new Bot(args[1]);
         const info = await testBot.api.getMe();
-        
-        // ذخیره در دیتابیس
-        const result = await db.run(
-            "INSERT INTO bots (token, username) VALUES (?, ?)",
-            token, info.username
-        );
-        
-        // اجرای ربات جدید
-        await startBot(token, result.lastID, info.username);
-        
-        await ctx.reply(
-            `✅ ربات @${info.username} اضافه شد و در حال اجراست.\n\n` +
-            `🆔 شناسه: ${result.lastID}`
-        );
-    } catch (error) {
-        await ctx.reply("❌ توکن نامعتبر است!");
+        const result = addBot(args[1], info.username);
+        if (result.success) {
+            await ctx.reply(`✅ ربات @${info.username} اضافه شد! شناسه: ${result.id}`);
+        } else {
+            await ctx.reply(result.message);
+        }
+    } catch {
+        await ctx.reply("❌ توکن نامعتبر!");
     }
 });
 
-mainBot.command("removebot", async (ctx) => {
+bot.command("removebot", async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) {
-        await ctx.reply("📝 استفاده: `/removebot شناسه`");
+        await ctx.reply("📝 استفاده: `/removebot ID`");
         return;
     }
-
     const id = parseInt(args[1]);
     if (isNaN(id)) {
         await ctx.reply("❌ شناسه باید عدد باشد!");
         return;
     }
-
-    // متوقف کردن ربات
-    if (runningBots.has(id)) {
-        const bot = runningBots.get(id);
-        await bot.stop();
-        runningBots.delete(id);
-    }
-
-    // حذف از دیتابیس
-    await db.run("DELETE FROM bots WHERE id = ?", id);
-    await ctx.reply("🗑️ ربات با موفقیت حذف و متوقف شد!");
+    removeBot(id);
+    await ctx.reply("🗑️ ربات حذف شد!");
 });
 
-mainBot.command("bots", async (ctx) => {
-    const bots = await getBots();
-    if (bots.length === 0) {
-        await ctx.reply("📭 هیچ ربات کمکی اضافه نشده است.");
+bot.command("bots", async (ctx) => {
+    const data = loadData();
+    if (data.bots.length === 0) {
+        await ctx.reply("📭 هیچ رباتی وجود ندارد.");
         return;
     }
-
-    let msg = `🤖 ربات‌های کمکی: ${bots.length}\n`;
-    msg += `🟢 در حال اجرا: ${runningBots.size}\n\n`;
-
-    for (const bot of bots) {
-        const status = runningBots.has(bot.id) ? "🟢" : "🔴";
-        msg += `${status} @${bot.username}\n`;
-        msg += `شناسه: ${bot.id} | حذف: /removebot ${bot.id}\n\n`;
+    let msg = "🤖 ربات‌های کمکی:\n\n";
+    for (const b of data.bots) {
+        msg += `🟢 @${b.username} - شناسه: ${b.id}\n`;
     }
-
     await ctx.reply(msg);
 });
 
-// سایر دستورات (addchannel, removechannel, channels, reactions, status, logs) مثل قبل
+bot.command("addchannel", async (ctx) => {
+    const args = ctx.message.text.split(" ");
+    if (args.length < 2) {
+        await ctx.reply("📝 استفاده: `/addchannel @username`");
+        return;
+    }
+    const result = addChannel(args[1]);
+    await ctx.reply(result.success ? `✅ کانال ${args[1]} اضافه شد!` : result.message);
+});
 
-mainBot.command("start", async (ctx) => {
-    const reactions = await getReactions();
-    const reactionList = reactions.map(r => r.emoji).join(" ");
-    
+bot.command("removechannel", async (ctx) => {
+    const args = ctx.message.text.split(" ");
+    if (args.length < 2) {
+        await ctx.reply("📝 استفاده: `/removechannel @username`");
+        return;
+    }
+    removeChannel(args[1]);
+    await ctx.reply("🗑️ کانال حذف شد!");
+});
+
+bot.command("channels", async (ctx) => {
+    const data = loadData();
+    if (data.channels.length === 0) {
+        await ctx.reply("📭 هیچ کانالی وجود ندارد.");
+        return;
+    }
+    let msg = "📡 کانال‌ها:\n\n";
+    for (const c of data.channels) {
+        msg += `• ${c.channel_id} ${c.is_active ? "✅" : "❌"}\n`;
+    }
+    await ctx.reply(msg);
+});
+
+bot.command("addreaction", async (ctx) => {
+    const args = ctx.message.text.split(" ");
+    if (args.length < 2) {
+        await ctx.reply("📝 استفاده: `/addreaction 😀`");
+        return;
+    }
+    const result = addReaction(args[1]);
+    await ctx.reply(result.success ? `✅ ${args[1]} اضافه شد!` : result.message);
+});
+
+bot.command("removereaction", async (ctx) => {
+    const args = ctx.message.text.split(" ");
+    if (args.length < 2) {
+        await ctx.reply("📝 استفاده: `/removereaction 😀`");
+        return;
+    }
+    removeReaction(args[1]);
+    await ctx.reply(`🗑️ ${args[1]} حذف شد!`);
+});
+
+bot.command("reactions", async (ctx) => {
+    const data = loadData();
+    await ctx.reply(`📋 ری‌اکشن‌ها:\n\n${data.reactions.join("  ")}`);
+});
+
+bot.command("logs", async (ctx) => {
+    const data = loadData();
+    if (data.logs.length === 0) {
+        await ctx.reply("📭 لاگی وجود ندارد.");
+        return;
+    }
+    let msg = "📋 آخرین لاگ‌ها:\n\n";
+    for (const log of data.logs.slice(0, 10)) {
+        const status = log.status === "success" ? "✅" : "❌";
+        msg += `${status} ${log.channelId} - ${log.emoji}\n`;
+    }
+    await ctx.reply(msg);
+});
+
+bot.command("status", async (ctx) => {
+    const data = loadData();
     await ctx.reply(
-        `👋 ربات ری‌اکشن‌گذار چندگانه\n\n` +
-        `📡 کانال‌ها:\n` +
-        `/addchannel @username\n` +
-        `/removechannel @username\n` +
-        `/channels\n\n` +
-        `😀 ری‌اکشن‌ها:\n` +
-        `/addreaction emoji\n` +
-        `/removereaction emoji\n` +
-        `/reactions\n\n` +
-        `🤖 ربات‌های کمکی:\n` +
-        `/addbot TOKEN\n` +
-        `/removebot ID\n` +
-        `/bots\n\n` +
-        `📊 /status\n` +
-        `📋 /logs\n\n` +
-        `🔹 ری‌اکشن‌های فعلی: ${reactionList}`
+        `📊 وضعیت:\n\n` +
+        `🤖 ربات‌ها: ${data.bots.length}\n` +
+        `📡 کانال‌ها: ${data.channels.length}\n` +
+        `😀 ری‌اکشن‌ها: ${data.reactions.length}\n` +
+        `📋 لاگ‌ها: ${data.logs.length}\n\n` +
+        `🟢 سیستم فعال است`
+    );
+});
+
+bot.command("start", async (ctx) => {
+    await ctx.reply(
+        `👋 ربات ری‌اکشن‌گذار\n\n` +
+        `/addchannel @username - اضافه کردن کانال\n` +
+        `/removechannel @username - حذف کانال\n` +
+        `/channels - لیست کانال‌ها\n\n` +
+        `/addreaction 😀 - اضافه کردن ری‌اکشن\n` +
+        `/removereaction 😀 - حذف ری‌اکشن\n` +
+        `/reactions - لیست ری‌اکشن‌ها\n\n` +
+        `/addbot TOKEN - اضافه کردن ربات کمکی\n` +
+        `/removebot ID - حذف ربات کمکی\n` +
+        `/bots - لیست ربات‌ها\n\n` +
+        `/status - وضعیت سیستم\n` +
+        `/logs - آخرین لاگ‌ها`
     );
 });
 
 // ========== اجرا ==========
 
-async function main() {
-    await initDatabase();
-    
-    // اجرای ربات‌های کمکی ذخیره شده
-    await startAllBots();
-    
-    // شروع ربات اصلی
-    mainBot.start();
-    console.log(`🚀 ربات اصلی ${mainBot.botInfo.username} اجرا شد!`);
-}
-
-main().catch(console.error);
+bot.start();
+console.log(`🚀 ربات ${bot.botInfo.username} اجرا شد!`);
