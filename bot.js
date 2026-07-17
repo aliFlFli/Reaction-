@@ -1,10 +1,8 @@
-// ========== نسخه نهایی و کامل (بدون خطا) ==========
-
 const { Bot } = require("grammy");
 const fs = require("fs");
 
 // ========== توکن ربات ==========
-const BOT_TOKEN = "7866512180:AAG5p9E-GjufNb4c10oJuL2rq6lBUCoclNg"
+const BOT_TOKEN = "7866512180:AAG5p9E-GjufNb4c10oJuL2rq6lBUCoclNg";
 const bot = new Bot(BOT_TOKEN);
 
 const DATA_FILE = "data.json";
@@ -124,7 +122,6 @@ async function reactToPost(ctx) {
     const data = loadData();
     const chatId = ctx.chat.id.toString();
     
-    // بررسی مجاز بودن کانال
     if (!data.channels.some(c => c.channel_id === chatId && c.is_active)) return;
     if (data.reactions.length === 0) return;
     
@@ -149,6 +146,51 @@ bot.on("message", async (ctx) => {
 });
 
 // ========== دستورات ==========
+
+// دستور start - حتماً جواب میده
+bot.command("start", async (ctx) => {
+    console.log("📩 پیام /start دریافت شد از:", ctx.from?.id);
+    const reactions = getReactions();
+    await ctx.reply(
+        `👋 سلام! به ربات ری‌اکشن‌گذار خوش اومدی!\n\n` +
+        `📡 کانال‌ها:\n` +
+        `/addchannel @username\n` +
+        `/removechannel @username\n` +
+        `/channels\n\n` +
+        `😀 ری‌اکشن‌ها:\n` +
+        `/addreaction emoji\n` +
+        `/removereaction emoji\n` +
+        `/reactions\n\n` +
+        `🤖 ربات‌های کمکی:\n` +
+        `/addbot TOKEN\n` +
+        `/removebot ID\n` +
+        `/bots\n\n` +
+        `📊 /status\n` +
+        `📋 /logs\n\n` +
+        `🔹 ری‌اکشن‌های فعلی: ${reactions.join(" ")}`
+    );
+});
+
+bot.command("help", async (ctx) => {
+    await ctx.reply(
+        `📚 راهنمای کامل:\n\n` +
+        `🤖 ربات‌ها:\n` +
+        `/addbot TOKEN - اضافه کردن ربات کمکی\n` +
+        `/removebot ID - حذف ربات کمکی\n` +
+        `/bots - لیست ربات‌ها\n\n` +
+        `📡 کانال‌ها:\n` +
+        `/addchannel @username - اضافه کردن کانال\n` +
+        `/removechannel @username - حذف کانال\n` +
+        `/channels - لیست کانال‌ها\n\n` +
+        `😀 ری‌اکشن‌ها:\n` +
+        `/addreaction 😀 - اضافه کردن ری‌اکشن\n` +
+        `/removereaction 😀 - حذف ری‌اکشن\n` +
+        `/reactions - لیست ری‌اکشن‌ها\n\n` +
+        `📊 /status - وضعیت سیستم\n` +
+        `📋 /logs - آخرین لاگ‌ها`
+    );
+});
+
 bot.command("addbot", async (ctx) => {
     const args = ctx.message.text.split(" ");
     if (args.length < 2) {
@@ -289,55 +331,13 @@ bot.command("status", async (ctx) => {
     );
 });
 
-bot.command("start", async (ctx) => {
-    const reactions = getReactions();
-    await ctx.reply(
-        `👋 ربات ری‌اکشن‌گذار چندگانه\n\n` +
-        `📡 کانال‌ها:\n` +
-        `/addchannel @username\n` +
-        `/removechannel @username\n` +
-        `/channels\n\n` +
-        `😀 ری‌اکشن‌ها:\n` +
-        `/addreaction emoji\n` +
-        `/removereaction emoji\n` +
-        `/reactions\n\n` +
-        `🤖 ربات‌های کمکی:\n` +
-        `/addbot TOKEN\n` +
-        `/removebot ID\n` +
-        `/bots\n\n` +
-        `📊 /status\n` +
-        `📋 /logs\n\n` +
-        `🔹 ری‌اکشن‌های فعلی: ${reactions.join(" ")}`
-    );
-});
-
-bot.command("help", async (ctx) => {
-    await ctx.reply(
-        `📚 راهنمای کامل:\n\n` +
-        `🤖 ربات‌ها:\n` +
-        `/addbot TOKEN - اضافه کردن ربات کمکی\n` +
-        `/removebot ID - حذف ربات کمکی\n` +
-        `/bots - لیست ربات‌ها\n\n` +
-        `📡 کانال‌ها:\n` +
-        `/addchannel @username - اضافه کردن کانال\n` +
-        `/removechannel @username - حذف کانال\n` +
-        `/channels - لیست کانال‌ها\n\n` +
-        `😀 ری‌اکشن‌ها:\n` +
-        `/addreaction 😀 - اضافه کردن ری‌اکشن\n` +
-        `/removereaction 😀 - حذف ری‌اکشن\n` +
-        `/reactions - لیست ری‌اکشن‌ها\n\n` +
-        `📊 /status - وضعیت سیستم\n` +
-        `📋 /logs - آخرین لاگ‌ها`
-    );
-});
-
 // ========== اجرا ==========
 
 async function main() {
-    // اینجا دیگه از bot.botInfo استفاده نمی‌کنیم
+    console.log("🚀 در حال اجرای ربات...");
     bot.start();
-    console.log("🚀 ربات با موفقیت اجرا شد!");
-    console.log("📺 آماده مدیریت کانال‌ها...");
+    console.log("✅ ربات با موفقیت اجرا شد!");
+    console.log("📺 منتظر پیام‌ها هستم...");
 }
 
 main().catch(console.error);
